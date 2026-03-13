@@ -5,182 +5,149 @@ title: API Overview
 
 # API Overview
 
-The WorldFlow AI API provides programmatic access to memory-augmented LLM infrastructure. All endpoints follow RESTful conventions and return JSON responses.
-
 ## Base URL
 
 ```
 https://api.worldflowai.com
 ```
 
-All API requests must be made over HTTPS. Requests made over plain HTTP will be rejected.
+For local development:
+
+```
+http://localhost:8080
+```
 
 ## Authentication
 
-Every request must include a valid JWT bearer token in the `Authorization` header:
+All requests require a JWT bearer token in the `Authorization` header:
 
 ```
-Authorization: Bearer <your_jwt_token>
+Authorization: Bearer <token>
 ```
 
-Obtain a token by calling the [Authentication API](./authentication-api) token exchange endpoint with your API key.
-
-For full details on authentication flows, see [Authentication](../authentication).
+See [Authentication](../authentication) for how to obtain tokens.
 
 ## Content Type
 
-All request bodies must be sent as JSON with the header:
+All request and response bodies use JSON:
 
 ```
 Content-Type: application/json
 ```
 
-All response bodies are returned as JSON with:
-
-```
-Content-Type: application/json; charset=utf-8
-```
-
 ## Field Naming Convention
 
-All JSON field names use **camelCase**:
+All JSON fields use **camelCase**:
 
 ```json
 {
-  "projectId": "proj_abc123",
-  "createdAt": "2026-01-15T08:30:00Z",
-  "memoryStore": {
-    "totalEntries": 42,
-    "lastUpdated": "2026-01-15T09:00:00Z"
-  }
+  "projectId": "my-project",
+  "branchName": "main",
+  "branchPurpose": "Initial setup",
+  "cumulativeProgress": "Completed onboarding",
+  "thisContribution": "Added first milestone",
+  "agentId": "my-agent",
+  "agentType": "custom"
 }
 ```
 
-## Error Envelope
+## Error Responses
 
-When an error occurs, the API returns a consistent error envelope:
+All errors follow this envelope format:
 
 ```json
 {
   "error": {
-    "code": "INVALID_REQUEST",
-    "message": "The 'projectId' field is required.",
-    "details": {
-      "field": "projectId",
-      "reason": "missing_required_field"
-    }
+    "message": "Human-readable error description",
+    "type": "error_type_identifier"
   }
 }
 ```
 
-| Field             | Type   | Description                                      |
-|-------------------|--------|--------------------------------------------------|
-| `error.code`      | string | Machine-readable error code                      |
-| `error.message`   | string | Human-readable error description                 |
-| `error.details`   | object | Optional additional context about the error      |
-
-For a complete list of error codes and their meanings, see [Error Codes](../reference/error-codes).
-
-## HTTP Status Codes
-
-| Status | Meaning                 | When Used                                         |
-|--------|-------------------------|---------------------------------------------------|
-| `200`  | OK                      | Successful GET, PUT, PATCH, or DELETE              |
-| `201`  | Created                 | Successful POST that creates a resource            |
-| `204`  | No Content              | Successful DELETE with no response body            |
-| `400`  | Bad Request             | Malformed request or invalid parameters            |
-| `401`  | Unauthorized            | Missing or invalid authentication token            |
-| `403`  | Forbidden               | Valid token but insufficient permissions           |
-| `404`  | Not Found               | Resource does not exist                            |
-| `409`  | Conflict                | Resource already exists or version conflict        |
-| `422`  | Unprocessable Entity    | Valid JSON but semantically invalid                |
-| `429`  | Too Many Requests       | Rate limit exceeded                                |
-| `500`  | Internal Server Error   | Unexpected server error                            |
-| `503`  | Service Unavailable     | Temporary service disruption or maintenance        |
-
-## Pagination
-
-List endpoints return paginated results. Use the `cursor` and `limit` query parameters:
-
-```
-GET /api/v1/projects?limit=20&cursor=eyJpZCI6MTAwfQ
-```
-
-| Parameter | Type    | Default | Description                                       |
-|-----------|---------|---------|---------------------------------------------------|
-| `limit`   | integer | 20      | Number of items per page (max 100)                 |
-| `cursor`  | string  | —       | Opaque cursor from a previous response             |
-
-Paginated responses include a `pagination` object:
+Rate limit errors include a `retry_after_secs` field:
 
 ```json
 {
-  "data": [ ... ],
-  "pagination": {
-    "hasMore": true,
-    "nextCursor": "eyJpZCI6MTIwfQ",
-    "total": 350
+  "error": {
+    "message": "rate limit exceeded: try again in 60 seconds",
+    "type": "rate_limit_error",
+    "retry_after_secs": 60
   }
 }
 ```
 
-| Field                     | Type    | Description                                   |
-|---------------------------|---------|-----------------------------------------------|
-| `pagination.hasMore`      | boolean | Whether more results exist beyond this page   |
-| `pagination.nextCursor`   | string  | Cursor to pass in the next request            |
-| `pagination.total`        | integer | Total number of items (when available)        |
+See [Error Codes](../reference/error-codes) for the full list of error types.
+
+## HTTP Status Codes
+
+| Status | Meaning |
+|--------|---------|
+| 200 | Success |
+| 201 | Created (new resource) |
+| 400 | Bad request (validation failed) |
+| 401 | Unauthorized (missing or invalid token) |
+| 403 | Forbidden (insufficient permissions) |
+| 404 | Resource not found |
+| 429 | Rate limit exceeded |
+| 500 | Internal server error |
+| 502 | Bad gateway (proxy upstream error) |
+| 503 | Service unavailable (embedding service down) |
+| 504 | Gateway timeout |
+
+## Pagination
+
+Endpoints that return lists support pagination via query parameters:
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | integer | varies | Maximum results to return |
+| `offset` | integer | 0 | Number of results to skip |
 
 ## Response Headers
 
-Every response includes the following headers:
-
-| Header                  | Description                                                    |
-|-------------------------|----------------------------------------------------------------|
-| `X-Request-Id`          | Unique identifier for the request (include in support tickets) |
-| `X-RateLimit-Limit`     | Maximum requests allowed per window                            |
-| `X-RateLimit-Remaining` | Requests remaining in the current window                       |
-| `X-RateLimit-Reset`     | Unix timestamp when the rate limit window resets               |
+| Header | Description |
+|--------|-------------|
+| `X-Cache-Status` | `HIT` or `MISS` (proxy endpoints only) |
+| `X-Request-ID` | Unique request identifier for debugging |
 
 ## API Groups
 
-The WorldFlow AI API is organized into three groups:
-
 ### Memory API
 
-CRUD operations for projects, memory stores, recall, logging, branches, search, metrics, and more.
+All memory endpoints are prefixed with `/api/v1/memory`.
 
-**Base path:** `/api/v1/`
-
-See the full [Memory API Reference](./memory-api).
+| Group | Path Prefix | Endpoints |
+|-------|-------------|-----------|
+| Projects | `/projects` | 4 |
+| Store | `/projects/{id}/store` | 1 |
+| Recall | `/projects/{id}/recall` | 1 |
+| Branches | `/projects/{id}/branches` | 4 |
+| Merge | `/projects/{id}/merge` | 1 |
+| Log | `/projects/{id}/log` | 1 |
+| Roadmap | `/projects/{id}/roadmap` | 1 |
+| Search | `/projects/{id}/search`, `/search` | 2 |
+| Metrics | `/projects/{id}/metrics` | 2 |
+| Promote | `/projects/{id}/promote` | 1 |
+| Contributors | `/contributors` | 5 |
+| Sources | `/sources` | 6 |
+| Intelligence | `/intelligence` | 2 |
 
 ### Proxy API
 
-OpenAI-compatible and Anthropic-compatible proxy endpoints that inject recalled memory into LLM requests.
+Drop-in replacements for LLM provider APIs.
 
-**Base paths:**
-- `/v1/chat/completions` — [OpenAI Proxy](./proxy-openai)
-- `/v1/messages` — [Anthropic Proxy](./proxy-anthropic)
+| Provider | Endpoint | Description |
+|----------|----------|-------------|
+| OpenAI | `POST /v1/chat/completions` | Chat completions with caching |
+| OpenAI | `GET /v1/models` | List available models |
+| Anthropic | `POST /v1/messages` | Messages API with caching |
 
-### Auth API
+### Authentication API
 
-Token exchange and API key management.
-
-**Base path:** `/api/v1/auth/`
-
-See the [Authentication API Reference](./authentication-api).
+| Endpoint | Description |
+|----------|-------------|
+| `POST /api/v1/auth/token` | Exchange API key for JWT |
 
 ## Versioning
 
-The API is versioned via the URL path (`/api/v1/`). When breaking changes are introduced, a new version is published. The previous version remains available for a deprecation period of at least 12 months.
-
-Non-breaking changes (new optional fields, new endpoints) may be added to the current version without a version bump. Always handle unknown JSON fields gracefully.
-
-### Version Lifecycle
-
-| Phase         | Duration   | Description                                         |
-|---------------|------------|-----------------------------------------------------|
-| **Current**   | —          | Actively developed, fully supported                 |
-| **Deprecated**| 12 months  | Still functional, migration recommended             |
-| **Sunset**    | —          | Removed, requests return `410 Gone`                 |
-
-Deprecation notices are communicated via the `Sunset` and `Deprecation` response headers as well as email notifications to account owners.
+The API is versioned via URL path (`/v1/`). Breaking changes will increment the version number. Non-breaking additions (new fields, new endpoints) are made to the current version.

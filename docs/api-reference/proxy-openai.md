@@ -1,342 +1,154 @@
 ---
 sidebar_position: 4
-title: OpenAI Proxy
+title: OpenAI-Compatible Proxy API
 ---
 
-# OpenAI Proxy
+# OpenAI-Compatible Proxy API
 
-The WorldFlow AI OpenAI Proxy provides a fully OpenAI-compatible endpoint that injects recalled memories into LLM requests. Use your existing OpenAI SDK with a one-line base URL change.
+WorldFlow AI provides a drop-in replacement for the OpenAI API. Point your existing OpenAI SDK at the WorldFlow AI base URL and get transparent semantic caching with zero code changes.
 
 ## Chat Completions
 
-### Endpoint
-
 ```
-POST https://api.worldflowai.com/v1/chat/completions
+POST /v1/chat/completions
 ```
 
-This endpoint is wire-compatible with the [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat/create). All standard OpenAI parameters are supported.
+Fully compatible with the [OpenAI Chat Completions API](https://platform.openai.com/docs/api-reference/chat/create). WorldFlow AI checks the semantic cache before forwarding to OpenAI.
 
-### Request Headers
+### Request
 
-| Header                   | Value                    | Required | Description                                      |
-|--------------------------|--------------------------|----------|--------------------------------------------------|
-| `Authorization`          | `Bearer <jwt_token>`     | Yes      | WorldFlow AI JWT token                           |
-| `Content-Type`           | `application/json`       | Yes      | Request content type                             |
-| `X-WorldFlow-Project`    | `<project_id>`           | Yes      | Target project for memory recall                 |
-| `X-WorldFlow-User`       | `<user_id>`              | No       | User identifier for personalized memory          |
-| `X-WorldFlow-Session`    | `<session_id>`           | No       | Session identifier for conversation grouping     |
-| `X-WorldFlow-Branch`     | `<branch_name>`          | No       | Memory branch (defaults to `"main"`)             |
+Same schema as OpenAI. Key fields:
 
-### Request Body
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `model` | string | yes | Model name (e.g., `"gpt-4o"`, `"gpt-4o-mini"`) |
+| `messages` | array | yes | Conversation messages |
+| `stream` | boolean | no | Enable streaming (default: false) |
+| `temperature` | number | no | Sampling temperature |
+| `max_tokens` | integer | no | Maximum response tokens |
+| `tools` | array | no | Tool/function definitions |
+| `tool_choice` | string/object | no | Tool selection strategy |
 
-Standard OpenAI Chat Completions request body. All fields are passed through to the upstream LLM provider.
-
-| Field              | Type    | Required | Description                                          |
-|--------------------|---------|----------|------------------------------------------------------|
-| `model`            | string  | Yes      | Model identifier (e.g., `"gpt-4o"`, `"gpt-4o-mini"`)|
-| `messages`         | array   | Yes      | Array of message objects                             |
-| `temperature`      | number  | No       | Sampling temperature (0-2)                           |
-| `top_p`            | number  | No       | Nucleus sampling parameter                           |
-| `max_tokens`       | integer | No       | Maximum tokens in the response                       |
-| `stream`           | boolean | No       | Enable streaming (default `false`)                   |
-| `tools`            | array   | No       | Tool/function definitions                            |
-| `tool_choice`      | string/object | No | Tool selection strategy                              |
-| `response_format`  | object  | No       | Response format (e.g., `{"type": "json_object"}`)    |
-| `n`                | integer | No       | Number of completions                                |
-| `stop`             | string/array | No  | Stop sequences                                       |
-| `presence_penalty` | number  | No       | Presence penalty (-2 to 2)                           |
-| `frequency_penalty`| number  | No       | Frequency penalty (-2 to 2)                          |
-| `logprobs`         | boolean | No       | Include log probabilities                            |
-| `top_logprobs`     | integer | No       | Number of top log probabilities                      |
-| `seed`             | integer | No       | Deterministic sampling seed                          |
-
-### Example Request
+### Example
 
 ```bash
 curl -X POST https://api.worldflowai.com/v1/chat/completions \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -H "X-WorldFlow-Project: proj_abc123" \
-  -H "X-WorldFlow-User: user_jane" \
   -d '{
     "model": "gpt-4o",
     "messages": [
-      {"role": "system", "content": "You are a helpful customer support agent."},
-      {"role": "user", "content": "What is my current subscription plan?"}
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Explain semantic caching in 2 sentences."}
     ],
     "temperature": 0.7,
-    "max_tokens": 500
+    "max_tokens": 200
   }'
 ```
 
 ### Response
 
-Standard OpenAI Chat Completions response with additional WorldFlow AI headers.
+Same schema as OpenAI, with additional headers:
 
 ```json
 {
   "id": "chatcmpl-abc123",
   "object": "chat.completion",
-  "created": 1705312200,
-  "model": "gpt-4o-2024-08-06",
-  "choices": [
-    {
-      "index": 0,
-      "message": {
-        "role": "assistant",
-        "content": "Based on your account information, you're currently on the Pro plan, which you upgraded to on January 5th. Your plan includes..."
-      },
-      "finish_reason": "stop"
-    }
-  ],
-  "usage": {
-    "prompt_tokens": 185,
-    "completion_tokens": 67,
-    "total_tokens": 252
-  }
-}
-```
-
-### Response Headers
-
-In addition to the standard [response headers](./overview#response-headers), the proxy adds:
-
-| Header                       | Description                                           |
-|------------------------------|-------------------------------------------------------|
-| `X-WorldFlow-Memories-Used`  | Number of memory entries injected into the prompt      |
-| `X-WorldFlow-Cache-Status`   | `"HIT"`, `"MISS"`, or `"BYPASS"`                      |
-| `X-WorldFlow-Recall-Ms`     | Time spent on memory recall (milliseconds)             |
-| `X-WorldFlow-Total-Ms`      | Total proxy processing time (milliseconds)             |
-| `X-WorldFlow-Model`         | Actual model used for the request                      |
-
-### Streaming
-
-Enable streaming by setting `"stream": true`. The proxy streams Server-Sent Events (SSE) in the standard OpenAI format:
-
-```bash
-curl -X POST https://api.worldflowai.com/v1/chat/completions \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "X-WorldFlow-Project: proj_abc123" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [
-      {"role": "user", "content": "Explain our refund policy."}
-    ],
-    "stream": true
-  }'
-```
-
-**Stream Response**
-
-```
-data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1705312200,"model":"gpt-4o","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1705312200,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":"Based"},"finish_reason":null}]}
-
-data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1705312200,"model":"gpt-4o","choices":[{"index":0,"delta":{"content":" on"},"finish_reason":null}]}
-
-...
-
-data: {"id":"chatcmpl-abc123","object":"chat.completion.chunk","created":1705312200,"model":"gpt-4o","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}
-
-data: [DONE]
-```
-
-### Tool Calls
-
-Tool calls (function calling) work identically to the OpenAI API. Define tools in the request and handle tool call responses as usual.
-
-**Request with Tools**
-
-```bash
-curl -X POST https://api.worldflowai.com/v1/chat/completions \
-  -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -H "X-WorldFlow-Project: proj_abc123" \
-  -d '{
-    "model": "gpt-4o",
-    "messages": [
-      {"role": "user", "content": "Look up order #12345"}
-    ],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "get_order",
-          "description": "Retrieve order details by order ID",
-          "parameters": {
-            "type": "object",
-            "properties": {
-              "order_id": {
-                "type": "string",
-                "description": "The order ID"
-              }
-            },
-            "required": ["order_id"]
-          }
-        }
-      }
-    ],
-    "tool_choice": "auto"
-  }'
-```
-
-**Tool Call Response**
-
-```json
-{
-  "id": "chatcmpl-abc123",
-  "object": "chat.completion",
-  "created": 1705312200,
+  "created": 1700000000,
   "model": "gpt-4o",
   "choices": [
     {
       "index": 0,
       "message": {
         "role": "assistant",
-        "content": null,
-        "tool_calls": [
-          {
-            "id": "call_abc123",
-            "type": "function",
-            "function": {
-              "name": "get_order",
-              "arguments": "{\"order_id\": \"12345\"}"
-            }
-          }
-        ]
+        "content": "Semantic caching stores LLM responses indexed by the meaning of queries rather than exact text matches. When a new query is semantically similar to a cached one, the stored response is returned instantly, saving both cost and latency."
       },
-      "finish_reason": "tool_calls"
+      "finish_reason": "stop"
     }
   ],
   "usage": {
-    "prompt_tokens": 120,
-    "completion_tokens": 25,
-    "total_tokens": 145
+    "prompt_tokens": 25,
+    "completion_tokens": 42,
+    "total_tokens": 67
   }
 }
 ```
 
----
+### Response Headers
 
-## Python SDK Example
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Cache-Status` | `HIT`, `MISS` | Whether the response was served from cache |
+| `X-Request-ID` | UUID | Request identifier for debugging |
 
-Use the standard OpenAI Python SDK with a base URL override:
+### Streaming
+
+Set `"stream": true` to receive Server-Sent Events (SSE). WorldFlow AI handles streaming for both cache hits and misses:
+
+- **Cache miss**: Streams from OpenAI while caching the full response
+- **Cache hit**: Reconstructs the SSE stream from the cached response
+
+```bash
+curl -X POST https://api.worldflowai.com/v1/chat/completions \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "messages": [{"role": "user", "content": "Hello"}],
+    "stream": true
+  }'
+```
+
+### Tool Calls
+
+Tool calls (function calling) are supported. The request and response formats match OpenAI exactly.
+
+### Python SDK
 
 ```python
 from openai import OpenAI
 
 client = OpenAI(
     base_url="https://api.worldflowai.com/v1",
-    api_key="<your_jwt_token>",
-    default_headers={
-        "X-WorldFlow-Project": "proj_abc123",
-        "X-WorldFlow-User": "user_jane",
-    },
+    api_key="YOUR_SYNAPSE_JWT_TOKEN",
 )
 
 response = client.chat.completions.create(
     model="gpt-4o",
-    messages=[
-        {"role": "system", "content": "You are a helpful assistant."},
-        {"role": "user", "content": "What did we discuss last week?"},
-    ],
-    temperature=0.7,
-    max_tokens=500,
+    messages=[{"role": "user", "content": "What is a REST API?"}],
 )
-
 print(response.choices[0].message.content)
 ```
 
-### Streaming with Python
-
-```python
-stream = client.chat.completions.create(
-    model="gpt-4o",
-    messages=[
-        {"role": "user", "content": "Summarize my recent activity."},
-    ],
-    stream=True,
-)
-
-for chunk in stream:
-    if chunk.choices[0].delta.content is not None:
-        print(chunk.choices[0].delta.content, end="")
-```
-
----
-
-## TypeScript SDK Example
-
-Use the standard OpenAI Node.js/TypeScript SDK:
+### TypeScript SDK
 
 ```typescript
 import OpenAI from "openai";
 
 const client = new OpenAI({
   baseURL: "https://api.worldflowai.com/v1",
-  apiKey: "<your_jwt_token>",
-  defaultHeaders: {
-    "X-WorldFlow-Project": "proj_abc123",
-    "X-WorldFlow-User": "user_jane",
-  },
+  apiKey: "YOUR_SYNAPSE_JWT_TOKEN",
 });
 
-async function main() {
-  const response = await client.chat.completions.create({
-    model: "gpt-4o",
-    messages: [
-      { role: "system", content: "You are a helpful assistant." },
-      { role: "user", content: "What did we discuss last week?" },
-    ],
-    temperature: 0.7,
-    max_tokens: 500,
-  });
-
-  console.log(response.choices[0].message.content);
-}
-
-main();
-```
-
-### Streaming with TypeScript
-
-```typescript
-const stream = await client.chat.completions.create({
+const response = await client.chat.completions.create({
   model: "gpt-4o",
-  messages: [
-    { role: "user", content: "Summarize my recent activity." },
-  ],
-  stream: true,
+  messages: [{ role: "user", content: "What is a REST API?" }],
 });
-
-for await (const chunk of stream) {
-  const content = chunk.choices[0]?.delta?.content;
-  if (content) {
-    process.stdout.write(content);
-  }
-}
+console.log(response.choices[0].message.content);
 ```
-
----
 
 ## List Models
 
-### Endpoint
-
 ```
-GET https://api.worldflowai.com/v1/models
+GET /v1/models
 ```
 
-Returns the list of models available through the proxy.
+Returns the list of available models.
 
-### Request Headers
-
-| Header          | Value                | Required |
-|-----------------|----------------------|----------|
-| `Authorization` | `Bearer <jwt_token>` | Yes      |
+```bash
+curl https://api.worldflowai.com/v1/models \
+  -H "Authorization: Bearer $TOKEN"
+```
 
 ### Response
 
@@ -347,93 +159,101 @@ Returns the list of models available through the proxy.
     {
       "id": "gpt-4o",
       "object": "model",
-      "created": 1705312200,
+      "created": 1700000000,
       "owned_by": "openai"
-    },
-    {
-      "id": "gpt-4o-mini",
-      "object": "model",
-      "created": 1705312200,
-      "owned_by": "openai"
-    },
-    {
-      "id": "gpt-4-turbo",
-      "object": "model",
-      "created": 1705312200,
-      "owned_by": "openai"
-    },
-    {
-      "id": "claude-sonnet-4-20250514",
-      "object": "model",
-      "created": 1705312200,
-      "owned_by": "anthropic"
     }
   ]
 }
 ```
 
----
-
 ## Cache Behavior
 
-The WorldFlow AI proxy implements intelligent caching to minimize latency and cost:
+### What Gets Cached
 
-1. **Memory Recall Cache**: Recalled memories are cached per user/project/branch combination. Cache TTL is 60 seconds by default.
-2. **Response Cache**: Identical requests (same messages, model, and parameters) may return cached responses when cache headers permit.
-3. **Embedding Cache**: Embedding computations for recall queries are cached for 5 minutes.
+The cache key is derived from the semantic embedding of the user's messages. Identical or semantically similar queries produce cache hits.
 
-### Cache Control Headers
+### What Bypasses Cache
 
-Control caching behavior with request headers:
+- Requests with `"stream": true` and unique system prompts may have lower hit rates
+- Tool call responses are cached based on the query, not the tool output
+- Set `X-Synapse-Skip-Cache: true` header to bypass caching for a specific request
 
-| Header                        | Values                     | Description                                  |
-|-------------------------------|----------------------------|----------------------------------------------|
-| `X-WorldFlow-Cache-Control`   | `no-cache`                 | Bypass all caches and force fresh recall      |
-| `X-WorldFlow-Cache-Control`   | `no-store`                 | Do not cache this request or response         |
-| `X-WorldFlow-Cache-Control`   | `max-age=<seconds>`        | Override default cache TTL                    |
-| `X-WorldFlow-Cache-Control`   | `only-if-cached`           | Return cached response or 504                 |
+### Cache-Control Headers
 
-**Example: Force Fresh Recall**
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-Synapse-Skip-Cache` | `true` | Bypass cache for this request |
+| `X-Synapse-Workspace-Context` | string | Workspace context for cache scoping |
+| `X-Synapse-Code-Context` | JSON | Detailed code context for cache invalidation |
+
+## Multi-Turn Context Caching
+
+WorldFlow AI implements the [ContextCache](https://arxiv.org/abs/2506.22791) paper's two-stage retrieval architecture for intelligent multi-turn conversation caching. This allows cache hits for conversations that are **semantically similar** (not just identical).
+
+### How It Works
+
+1. **Turn Embeddings**: Each message in the conversation is embedded independently
+2. **Context Fusion**: Turn embeddings are fused via multi-head self-attention into a single context embedding
+3. **Stage 1 (Coarse)**: HNSW search finds candidates by last query embedding similarity (>=0.85)
+4. **Stage 2 (Fine)**: Candidates are scored using weighted combination:
+   ```
+   final_score = 0.3 * query_similarity + 0.7 * context_similarity
+   ```
+   Cache hit requires `final_score >= 0.92`
+
+### Enabling Context Caching
+
+Context caching is **enabled by default**. For optimal cache reuse, clients should provide a consistent `session_id`:
 
 ```bash
 curl -X POST https://api.worldflowai.com/v1/chat/completions \
-  -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -H "X-WorldFlow-Project: proj_abc123" \
-  -H "X-WorldFlow-Cache-Control: no-cache" \
+  -H "Authorization: Bearer $TOKEN" \
   -d '{
-    "model": "gpt-4o",
+    "model": "gpt-4o-mini",
+    "session_id": "user-123-session-abc",
     "messages": [
-      {"role": "user", "content": "What is my latest account status?"}
+      {"role": "user", "content": "What is Python?"},
+      {"role": "assistant", "content": "Python is a programming language."},
+      {"role": "user", "content": "Tell me more"}
     ]
   }'
 ```
 
----
+**Important**: Without `session_id`, a new UUID is generated per request, which prevents session-level turn embedding reuse.
 
-## Errors
+### Context Cache Response
 
-The proxy returns standard OpenAI-format errors for compatibility:
+The response includes a `synapse_metadata` object with cache status details:
 
 ```json
 {
-  "error": {
-    "message": "Invalid model: gpt-5-ultra",
-    "type": "invalid_request_error",
-    "param": "model",
-    "code": "model_not_found"
+  "choices": [...],
+  "synapse_metadata": {
+    "cache_hit": true,
+    "cache_tier": "l2_context",
+    "similarity": 1.0,
+    "context_similarity": 0.95,
+    "session_id": "user-123-session-abc"
   }
 }
 ```
 
-WorldFlow AI-specific errors use the standard [error envelope](./overview#error-envelope):
+| Field | Type | Description |
+|-------|------|-------------|
+| `cache_hit` | boolean | Whether the response was served from cache |
+| `cache_tier` | string | Cache tier that produced the hit (e.g., `"l2_context"`) |
+| `similarity` | number | Query similarity score |
+| `context_similarity` | number | Context similarity score from Stage 2 |
+| `session_id` | string | Session identifier used for this request |
 
-| Code                    | Status | Description                                          |
-|-------------------------|--------|------------------------------------------------------|
-| `PROJECT_NOT_FOUND`     | 404    | The project specified in `X-WorldFlow-Project` does not exist |
-| `RECALL_FAILED`         | 502    | Memory recall encountered an upstream error          |
-| `UPSTREAM_TIMEOUT`      | 504    | The LLM provider did not respond in time             |
-| `UPSTREAM_ERROR`        | 502    | The LLM provider returned an error                   |
-| `MODEL_NOT_AVAILABLE`   | 400    | The requested model is not available through the proxy |
+### Configuration
 
-For the full list of error codes, see [Error Codes](../reference/error-codes).
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SYNAPSE_CONTEXT_CACHE__ENABLED` | Enable context-aware caching | `true` |
+| `SYNAPSE_CONTEXT_CACHE__STAGE1_THRESHOLD` | Stage 1 query similarity threshold | `0.85` |
+| `SYNAPSE_CONTEXT_CACHE__CONTEXT_HIT_THRESHOLD` | Final score threshold for cache hit | `0.92` |
+| `SYNAPSE_CONTEXT_CACHE__QUERY_WEIGHT` | Weight for query similarity | `0.3` |
+| `SYNAPSE_CONTEXT_CACHE__CONTEXT_WEIGHT` | Weight for context similarity | `0.7` |
+| `SYNAPSE_CONTEXT_CACHE__MAX_TURNS` | Maximum turns to consider | `20` |

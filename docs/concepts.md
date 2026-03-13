@@ -45,11 +45,93 @@ New prompt ──embed──> L0 search ──donor found──> Inject KV cache
 SemBlend is most effective for workloads with repeated long-context patterns: RAG pipelines, multi-turn conversations, document summarization, and customer support. For short prompts (<2K tokens), the semantic response cache (L1/L2) is more efficient.
 :::
 
+### L0 GPU Cache Configuration
+
+The L0 GPU cache uses NVIDIA's cuVS CAGRA algorithm running directly in GPU HBM for sub-2ms ANN search. It is optional and disabled by default.
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SYNAPSE_L0_CACHE_ENABLED` | Enable L0 GPU cache | `false` |
+| `SYNAPSE_L0_CACHE_DEVICE_ID` | CUDA device index | `0` |
+| `SYNAPSE_L0_CACHE_MAX_MEMORY_MB` | HBM budget for L0 cache | `2500` |
+| `SYNAPSE_L0_CACHE_EMBEDDING_DIM` | Embedding dimension | `1024` |
+| `SYNAPSE_L0_CACHE_MAX_ENTRIES` | Maximum cached vectors | `524288` |
+| `SYNAPSE_L0_CACHE_SIMILARITY_THRESHOLD` | Cosine similarity threshold | `0.85` |
+| `SYNAPSE_L0_CACHE_BATCH_SIZE` | Queries per CAGRA batch | `16` |
+| `SYNAPSE_L0_CACHE_BATCH_TIMEOUT_US` | Max wait for batch fill | `500` |
+
+Key design features:
+- **Index pool pattern**: Multiple pre-built indexes for concurrent search without blocking on rebuilds
+- **L1 auto-promotion**: L1 cache hits are automatically promoted into L0, keeping the GPU cache warm
+- **Adaptive memory management**: 3-tier pressure system (Normal/Pressure/Critical) yields GPU memory to inference workloads when needed
+
 ## Semantic Cache
 
 WorldFlow AI embeds every LLM query into a vector and searches for semantically similar past queries. If a match exceeds the similarity threshold (default 0.85), the cached response is returned instantly instead of calling the LLM provider.
 
 The proxy is a drop-in replacement for OpenAI and Anthropic APIs. Point your SDK at WorldFlow AI's base URL, and caching happens transparently.
+
+### Multi-Turn Context Caching
+
+WorldFlow AI implements the [ContextCache](https://arxiv.org/abs/2506.22791) paper's two-stage retrieval architecture for intelligent multi-turn conversation caching. This allows cache hits for conversations that are **semantically similar**, not just identical.
+
+**How it works:**
+
+1. **Turn Embeddings**: Each message in the conversation is embedded independently
+2. **Context Fusion**: Turn embeddings are fused via multi-head self-attention into a single context embedding
+3. **Stage 1 (Coarse)**: HNSW search finds candidates by last query embedding similarity (≥0.85)
+4. **Stage 2 (Fine)**: Candidates are scored using a weighted combination:
+   ```
+   final_score = 0.3 × query_similarity + 0.7 × context_similarity
+   ```
+   Cache hit requires `final_score ≥ 0.92`
+
+For optimal cache reuse, clients should provide a consistent `session_id` in requests:
+
+```bash
+curl https://api.worldflowai.com/v1/chat/completions \
+  -H "Authorization: Bearer $SYNAPSE_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4o",
+    "session_id": "user-123-session-abc",
+    "messages": [
+      {"role": "user", "content": "What is Python?"},
+      {"role": "assistant", "content": "Python is a programming language."},
+      {"role": "user", "content": "Tell me more"}
+    ]
+  }'
+```
+
+:::info
+Without `session_id`, a new UUID is generated per request, which prevents session-level turn embedding reuse. Always pass a consistent `session_id` for multi-turn conversations.
+:::
+
+Context cache responses include a `synapse_metadata` object:
+
+```json
+{
+  "choices": [...],
+  "synapse_metadata": {
+    "cache_hit": true,
+    "cache_tier": "l2_context",
+    "similarity": 1.0,
+    "context_similarity": 0.95,
+    "session_id": "user-123-session-abc"
+  }
+}
+```
+
+**Configuration:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SYNAPSE_CONTEXT_CACHE__ENABLED` | Enable context-aware caching | `true` |
+| `SYNAPSE_CONTEXT_CACHE__STAGE1_THRESHOLD` | Stage 1 query similarity threshold | `0.85` |
+| `SYNAPSE_CONTEXT_CACHE__CONTEXT_HIT_THRESHOLD` | Final score threshold for cache hit | `0.92` |
+| `SYNAPSE_CONTEXT_CACHE__QUERY_WEIGHT` | Weight for query similarity | `0.3` |
+| `SYNAPSE_CONTEXT_CACHE__CONTEXT_WEIGHT` | Weight for context similarity | `0.7` |
+| `SYNAPSE_CONTEXT_CACHE__MAX_TURNS` | Maximum turns to consider | `20` |
 
 ## Memory Layer (GCC Model)
 
