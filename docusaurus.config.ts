@@ -5,7 +5,7 @@ import type * as Preset from '@docusaurus/preset-classic';
 const config: Config = {
   title: 'WorldFlow AI Docs',
   tagline: 'The enterprise memory layer for AI',
-  favicon: 'img/favicon.svg',
+  favicon: 'img/favicon.png',
 
   future: {
     v4: true,
@@ -66,7 +66,8 @@ const config: Config = {
       title: 'WorldFlow AI',
       logo: {
         alt: 'WorldFlow AI',
-        src: 'img/logo.svg',
+        src: 'img/logo-icon.png',
+        style: {borderRadius: '50%'},
       },
       items: [
         {
@@ -112,7 +113,6 @@ const config: Config = {
           title: 'Guides',
           items: [
             {label: 'Memory for Agents', to: '/docs/guides/memory-for-agents'},
-            {label: 'Claude Code', to: '/docs/guides/claude-code'},
             {label: 'Multi-Provider Setup', to: '/docs/guides/multi-provider'},
           ],
         },
