@@ -1,0 +1,669 @@
+openapi: 3.1.0
+info:
+  title: Synapse Proxy API
+  description: |
+    Synapse Proxy is the internal cache proxy service for Synapse semantic cache.
+
+    ## Overview
+    The proxy service handles the core caching logic:
+    1. Generate embeddings for queries
+    2. Check L1 cache (Redis with exact + semantic match)
+    3. Search L2 vector database (Milvus for semantic similarity)
+    4. Call LLM providers on cache miss
+    5. Run edgehog analysis (PII/personalization detection)
+    6. Cache responses if deemed cacheable
+
+    ## Architecture
+    ```
+    Gateway → Proxy → L1 (Redis) → L2 (Milvus) → LLM Providers
+                ↓
+           Kafka (async replication)
+    ```
+
+    ## Internal Service
+    This API is designed for internal use by synapse-gateway. It is not intended
+    for direct external access but is documented for completeness and debugging.
+
+    ## Cache Tiers
+    - **L1 (l1/l1_semantic)**: Redis-based, sub-millisecond latency
+      - `l1`: Exact embedding hash match
+      - `l1_semantic`: HNSW semantic search (if supported)
+    - **L2 (l2)**: Milvus vector database, ~10-50ms latency
+      - Semantic similarity search with configurable thresholds
+
+    ## Cacheability
+    Responses are analyzed by edgehog before caching. The following may prevent caching:
+    - PII detected in response (when `skip_pii` enabled)
+    - Personalization detected (when `skip_personalized` enabled)
+  version: 0.1.0
+  contact:
+    name: Synapse Team
+    url: https://github.com/worldflowai/synapse
+  license:
+    name: Apache 2.0
+    url: https://www.apache.org/licenses/LICENSE-2.0
+
+servers:
+  - url: http://localhost:8081
+    description: Local development proxy
+  - url: http://synapse-proxy:8081
+    description: Kubernetes internal service
+
+tags:
+  - name: System
+    description: Health checks and system information
+  - name: Query
+    description: Query processing and cache operations
+
+paths:
+  # ==========================================================================
+  # System Endpoints
+  # ==========================================================================
+  /:
+    get:
+      summary: API Information
+      description: Returns basic information about the Synapse Proxy API
+      operationId: getApiInfo
+      tags: [System]
+      responses:
+        '200':
+          description: API information
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiInfo'
+              example:
+                service: "Synapse Proxy"
+                version: "0.1.0"
+                description: "Cache proxy service for Synapse semantic cache"
+                endpoints:
+                  health: "GET /health"
+                  ready: "GET /ready"
+                  stats: "GET /stats"
+                  query: "POST /api/v1/query"
+                  cache_store: "POST /api/v1/cache/store"
+
+  /health:
+    get:
+      summary: Health Check
+      description: |
+        Returns basic health status without checking dependencies.
+        Always returns healthy if the service is running.
+      operationId: healthCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+              example:
+                status: "healthy"
+                version: "0.1.0"
+                service: "synapse-proxy"
+
+  /ready:
+    get:
+      summary: Readiness Check
+      description: |
+        Checks connectivity to all components:
+        - L1 cache (Redis)
+        - L2 vector database (Milvus)
+        - Embedding service
+        - LLM providers
+
+        Returns 503 if the service is not ready to accept traffic.
+      operationId: readinessCheck
+      tags: [System]
+      responses:
+        '200':
+          description: Service is ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+              example:
+                ready: true
+                components:
+                  proxy: true
+                  l1_cache: true
+                  l2_vector: true
+                  embedding: true
+                  providers: true
+                uptime_secs: 3600
+        '503':
+          description: Service is not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReadyResponse'
+              example:
+                ready: false
+                components:
+                  proxy: true
+                  l1_cache: false
+                  l2_vector: true
+                  embedding: true
+                  providers: true
+                uptime_secs: 10
+
+  /stats:
+    get:
+      summary: Service Statistics
+      description: |
+        Returns detailed statistics about the proxy service including:
+        - Component connection status
+        - Configuration summary
+        - Uptime information
+      operationId: getStats
+      tags: [System]
+      responses:
+        '200':
+          description: Service statistics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsResponse'
+              example:
+                uptime_secs: 86400
+                l1_cache:
+                  enabled: true
+                  connected: true
+                l2_vector:
+                  enabled: true
+                  connected: true
+                config:
+                  cache_hit_threshold: 0.92
+                  edgehog_enabled: true
+                  default_provider: "openai"
+                  default_model: "gpt-4o"
+
+  # ==========================================================================
+  # Query Endpoints
+  # ==========================================================================
+  /api/v1/query:
+    post:
+      summary: Process Query
+      description: |
+        Process a query through the semantic cache pipeline.
+
+        ## Processing Pipeline
+        1. **Validate**: Check query is non-empty and within length limits
+        2. **Embed**: Generate embedding vector for the query
+        3. **Cache Key**: Compute blake3 hash of embedding (64-bit)
+        4. **L1 Check**:
+           - Semantic search (if supported by L1 backend)
+           - Exact embedding hash match
+        5. **L2 Check**: Vector similarity search in Milvus
+        6. **LLM Call**: On cache miss, call configured LLM provider
+        7. **Edgehog Analysis**: Check for PII/personalization
+        8. **Cache Write**: Store cacheable responses in L1 and L2
+
+        ## Cache Hit Thresholds
+        - `cache_hit_threshold`: Minimum similarity for full cache hit (default: 0.92)
+        - `partial_hit_threshold`: Minimum for logging partial matches (default: 0.75)
+
+        ## Multi-Tenancy
+        Responses are cached per-tenant using the `tenant_id` parameter.
+        Each tenant has isolated cache entries in both L1 and L2.
+      operationId: processQuery
+      tags: [Query]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+            examples:
+              simple:
+                summary: Simple query
+                value:
+                  query: "What is the capital of France?"
+              with_options:
+                summary: Query with options
+                value:
+                  query: "Explain quantum computing in simple terms"
+                  model: "gpt-4o"
+                  tenant_id: "tenant-123"
+                  session_id: "session-456"
+                  parameters:
+                    temperature: 0.7
+                    max_tokens: 500
+      responses:
+        '200':
+          description: Query processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+              examples:
+                cache_hit_l1:
+                  summary: L1 cache hit
+                  value:
+                    response: "Paris is the capital of France."
+                    cache_hit: true
+                    cache_tier: "l1"
+                    similarity: 1.0
+                    source: "l1_cache"
+                    cache_key: 12345678901234567
+                    cacheable: true
+                    latency_ms: 2
+                cache_hit_l1_semantic:
+                  summary: L1 semantic cache hit
+                  value:
+                    response: "The capital of France is Paris."
+                    cache_hit: true
+                    cache_tier: "l1_semantic"
+                    similarity: 0.97
+                    source: "l1_cache_semantic"
+                    cache_key: 12345678901234568
+                    cacheable: true
+                    latency_ms: 5
+                cache_hit_l2:
+                  summary: L2 cache hit
+                  value:
+                    response: "Paris is the capital city of France."
+                    cache_hit: true
+                    cache_tier: "l2"
+                    similarity: 0.94
+                    source: "l2_vector"
+                    cache_key: 12345678901234569
+                    cacheable: true
+                    latency_ms: 25
+                cache_miss:
+                  summary: Cache miss
+                  value:
+                    response: "Paris is the capital of France, known for the Eiffel Tower."
+                    cache_hit: false
+                    source: "openai/gpt-4o"
+                    cache_key: 12345678901234570
+                    cacheable: true
+                    latency_ms: 850
+                not_cacheable:
+                  summary: Response not cacheable (PII detected)
+                  value:
+                    response: "Your account balance is $1,234.56, John."
+                    cache_hit: false
+                    source: "openai/gpt-4o"
+                    cache_key: 12345678901234571
+                    cacheable: false
+                    latency_ms: 750
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                empty_query:
+                  summary: Empty query
+                  value:
+                    error:
+                      type: "validation_error"
+                      message: "Query cannot be empty"
+                query_too_long:
+                  summary: Query too long
+                  value:
+                    error:
+                      type: "validation_error"
+                      message: "Query exceeds maximum length of 10000 characters"
+        '500':
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              examples:
+                embedding_error:
+                  summary: Embedding generation failed
+                  value:
+                    error:
+                      type: "embedding_error"
+                      message: "Failed to generate embedding: Connection refused"
+                provider_error:
+                  summary: LLM provider error
+                  value:
+                    error:
+                      type: "provider_error"
+                      message: "Provider error: Rate limit exceeded"
+
+  /api/v1/cache/store:
+    post:
+      summary: Store Cache Entry
+      description: |
+        Manually store a query/response pair in the cache.
+
+        This endpoint bypasses the normal query processing pipeline and directly
+        stores the provided response. Useful for:
+        - Pre-populating the cache with known good responses
+        - Storing custom responses for specific queries
+        - Batch importing from external sources
+
+        ## Processing
+        1. Generate embedding for the query
+        2. Compute cache key from embedding
+        3. Store in L1 cache (if enabled)
+        4. Store in L2 vector database (if enabled)
+
+        **Note:** This endpoint does NOT run edgehog analysis. Ensure the
+        response is appropriate for caching before storing.
+      operationId: storeCacheEntry
+      tags: [Query]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CacheStoreRequest'
+            examples:
+              basic:
+                summary: Basic cache store
+                value:
+                  query: "What is machine learning?"
+                  response: "Machine learning is a subset of artificial intelligence..."
+              with_metadata:
+                summary: With metadata
+                value:
+                  query: "Explain neural networks"
+                  response: "Neural networks are computing systems inspired by biological neural networks..."
+                  tenant_id: "tenant-123"
+                  model: "gpt-4o"
+      responses:
+        '200':
+          description: Cache entry stored successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CacheStoreResponse'
+              example:
+                success: true
+                cache_key: 12345678901234567
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          description: Storage failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+              example:
+                error:
+                  type: "l1_cache_error"
+                  message: "Failed to write to L1 cache: Connection refused"
+
+components:
+  schemas:
+    # ==========================================================================
+    # System Schemas
+    # ==========================================================================
+    ApiInfo:
+      type: object
+      properties:
+        service:
+          type: string
+          description: Service name
+        version:
+          type: string
+          description: Service version
+        description:
+          type: string
+          description: Service description
+        endpoints:
+          type: object
+          description: Available endpoints
+          additionalProperties:
+            type: string
+
+    HealthResponse:
+      type: object
+      required: [status, version, service]
+      properties:
+        status:
+          type: string
+          enum: [healthy]
+          description: Service health status
+        version:
+          type: string
+          description: Service version
+        service:
+          type: string
+          description: Service name
+
+    ReadyResponse:
+      type: object
+      required: [ready, components, uptime_secs]
+      properties:
+        ready:
+          type: boolean
+          description: Overall readiness status
+        components:
+          $ref: '#/components/schemas/ReadyComponents'
+        uptime_secs:
+          type: integer
+          format: int64
+          description: Service uptime in seconds
+
+    ReadyComponents:
+      type: object
+      required: [proxy, l1_cache, l2_vector, embedding, providers]
+      properties:
+        proxy:
+          type: boolean
+          description: Proxy service status (always true if responding)
+        l1_cache:
+          type: boolean
+          description: L1 cache (Redis) connectivity
+        l2_vector:
+          type: boolean
+          description: L2 vector database (Milvus) connectivity
+        embedding:
+          type: boolean
+          description: Embedding service availability
+        providers:
+          type: boolean
+          description: LLM provider availability
+
+    StatsResponse:
+      type: object
+      required: [uptime_secs, l1_cache, l2_vector, config]
+      properties:
+        uptime_secs:
+          type: integer
+          format: int64
+          description: Service uptime in seconds
+        l1_cache:
+          $ref: '#/components/schemas/ComponentStats'
+        l2_vector:
+          $ref: '#/components/schemas/ComponentStats'
+        config:
+          $ref: '#/components/schemas/ConfigSummary'
+
+    ComponentStats:
+      type: object
+      required: [enabled, connected]
+      properties:
+        enabled:
+          type: boolean
+          description: Whether the component is enabled in config
+        connected:
+          type: boolean
+          description: Whether the component is currently connected
+
+    ConfigSummary:
+      type: object
+      required: [cache_hit_threshold, edgehog_enabled, default_provider, default_model]
+      properties:
+        cache_hit_threshold:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: Minimum similarity score for cache hits
+        edgehog_enabled:
+          type: boolean
+          description: Whether edgehog analysis is enabled
+        default_provider:
+          type: string
+          description: Default LLM provider
+        default_model:
+          type: string
+          description: Default model for LLM calls
+
+    # ==========================================================================
+    # Query Schemas
+    # ==========================================================================
+    QueryRequest:
+      type: object
+      required: [query]
+      properties:
+        query:
+          type: string
+          description: The query text to process
+          minLength: 1
+          maxLength: 100000
+          example: "What is the capital of France?"
+        model:
+          type: string
+          description: |
+            Model to use for LLM calls on cache miss.
+            Defaults to the configured default_model.
+          example: "gpt-4o"
+        tenant_id:
+          type: string
+          description: |
+            Tenant identifier for cache isolation.
+            Defaults to "default" if not provided.
+          example: "tenant-123"
+        session_id:
+          type: string
+          description: |
+            Session identifier for tracking related queries.
+            Currently unused but reserved for future use.
+          example: "session-456"
+        parameters:
+          type: object
+          description: |
+            Additional parameters passed to the LLM provider on cache miss.
+            Common parameters include temperature, max_tokens, top_p, etc.
+          additionalProperties: true
+          example:
+            temperature: 0.7
+            max_tokens: 500
+
+    QueryResponse:
+      type: object
+      required: [response, cache_hit, cacheable, latency_ms]
+      properties:
+        response:
+          type: string
+          description: The response text (from cache or LLM)
+        cache_hit:
+          type: boolean
+          description: Whether this was served from cache
+        cache_tier:
+          type: string
+          enum: [l1, l1_semantic, l2]
+          description: |
+            Which cache tier provided the hit:
+            - `l1`: L1 exact embedding hash match
+            - `l1_semantic`: L1 HNSW semantic search
+            - `l2`: L2 Milvus vector search
+        similarity:
+          type: number
+          format: float
+          minimum: 0
+          maximum: 1
+          description: |
+            Semantic similarity score for cache hits.
+            1.0 for exact matches, lower for semantic matches.
+        source:
+          type: string
+          description: |
+            Response source identifier:
+            - `l1_cache`: L1 exact match
+            - `l1_cache_semantic`: L1 semantic match
+            - `l2_vector`: L2 vector search
+            - `{provider}/{model}`: LLM provider (e.g., "openai/gpt-4o")
+          example: "openai/gpt-4o"
+        cache_key:
+          type: integer
+          format: int64
+          description: |
+            The computed cache key (blake3 hash of embedding).
+            Can be used for cache invalidation.
+        cacheable:
+          type: boolean
+          description: |
+            Whether the response was deemed cacheable.
+            False if edgehog detected PII or personalization.
+        latency_ms:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Total request latency in milliseconds
+
+    CacheStoreRequest:
+      type: object
+      required: [query, response]
+      properties:
+        query:
+          type: string
+          description: The query text to associate with the response
+          minLength: 1
+        response:
+          type: string
+          description: The response text to cache
+          minLength: 1
+        tenant_id:
+          type: string
+          description: Tenant identifier for cache isolation
+          default: "default"
+        model:
+          type: string
+          description: Model identifier for the cached response
+          default: "unknown"
+
+    CacheStoreResponse:
+      type: object
+      required: [success, cache_key]
+      properties:
+        success:
+          type: boolean
+          description: Whether the store operation succeeded
+        cache_key:
+          type: integer
+          format: int64
+          description: The computed cache key for the stored entry
+        message:
+          type: string
+          description: Optional message with additional details
+
+    # ==========================================================================
+    # Error Schemas
+    # ==========================================================================
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [type, message]
+          properties:
+            type:
+              type: string
+              description: Error type identifier
+              enum:
+                - validation_error
+                - embedding_error
+                - l1_cache_error
+                - l2_vector_error
+                - provider_error
+                - internal_error
+            message:
+              type: string
+              description: Human-readable error message
