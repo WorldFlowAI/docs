@@ -1,33 +1,33 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
 :root {
-  --ifm-color-primary: #6366f1;
-  --ifm-color-primary-dark: #4f46e5;
-  --ifm-color-primary-darker: #4338ca;
-  --ifm-color-primary-darkest: #3730a3;
-  --ifm-color-primary-light: #818cf8;
-  --ifm-color-primary-lighter: #a5b4fc;
-  --ifm-color-primary-lightest: #c7d2fe;
+  --ifm-color-primary: #059669;
+  --ifm-color-primary-dark: #047857;
+  --ifm-color-primary-darker: #065f46;
+  --ifm-color-primary-darkest: #064e3b;
+  --ifm-color-primary-light: #10b981;
+  --ifm-color-primary-lighter: #34d399;
+  --ifm-color-primary-lightest: #6ee7b7;
   --ifm-font-family-base: 'Inter', system-ui, -apple-system, sans-serif;
   --ifm-code-font-size: 95%;
   --ifm-heading-font-weight: 600;
-  --docusaurus-highlighted-code-line-bg: rgba(99, 102, 241, 0.1);
+  --docusaurus-highlighted-code-line-bg: rgba(16, 185, 129, 0.1);
 }
 
 [data-theme='dark'] {
-  --ifm-background-color: #0a0a0a;
-  --ifm-background-surface-color: #141414;
-  --ifm-color-primary: #818cf8;
-  --ifm-color-primary-dark: #6366f1;
-  --ifm-color-primary-darker: #4f46e5;
-  --ifm-color-primary-darkest: #4338ca;
-  --ifm-color-primary-light: #a5b4fc;
-  --ifm-color-primary-lighter: #c7d2fe;
-  --ifm-color-primary-lightest: #e0e7ff;
-  --ifm-navbar-background-color: #0a0a0a;
+  --ifm-background-color: #0a0a0b;
+  --ifm-background-surface-color: #111113;
+  --ifm-color-primary: #10b981;
+  --ifm-color-primary-dark: #059669;
+  --ifm-color-primary-darker: #047857;
+  --ifm-color-primary-darkest: #065f46;
+  --ifm-color-primary-light: #34d399;
+  --ifm-color-primary-lighter: #6ee7b7;
+  --ifm-color-primary-lightest: #a7f3d0;
+  --ifm-navbar-background-color: #0a0a0b;
   --ifm-footer-background-color: #050505;
-  --ifm-card-background-color: #141414;
-  --docusaurus-highlighted-code-line-bg: rgba(129, 140, 248, 0.15);
+  --ifm-card-background-color: #111113;
+  --docusaurus-highlighted-code-line-bg: rgba(16, 185, 129, 0.15);
 }
 
 /* Navbar */
@@ -37,7 +37,7 @@
 }
 
 [data-theme='dark'] .navbar {
-  background-color: rgba(10, 10, 10, 0.85);
+  background-color: rgba(10, 10, 11, 0.85);
 }
 
 .navbar__title {
@@ -50,14 +50,14 @@
 }
 
 .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(99, 102, 241, 0.1);
+  background-color: rgba(16, 185, 129, 0.1);
   border-left: 3px solid var(--ifm-color-primary);
   padding-left: calc(var(--ifm-menu-link-padding-horizontal) - 3px);
 }
 
 /* Code blocks */
 [data-theme='dark'] .prism-code {
-  background-color: #0f0f0f !important;
+  background-color: #0f0f10 !important;
   border: 1px solid rgba(255, 255, 255, 0.06);
 }
 
@@ -77,7 +77,7 @@
 }
 
 [data-theme='dark'] table th {
-  background-color: #141414;
+  background-color: #111113;
 }
 
 [data-theme='dark'] table td,
