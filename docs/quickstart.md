@@ -149,5 +149,4 @@ The second time you (or anyone on your team) asks a semantically similar questio
 - [Authentication](./authentication) --- Token lifecycle, key rotation, multi-environment setup
 - [Core Concepts](./concepts) --- How the semantic cache, three-tier architecture, and memory model work
 - [Memory API Reference](./api-reference/memory-api) --- All 32 memory endpoints
-- [Claude Code Integration](./guides/claude-code) --- Automatic memory for Claude Code sessions
 - [Error Handling](./guides/error-handling) --- Retry strategies and error codes

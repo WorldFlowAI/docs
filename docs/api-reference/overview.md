@@ -141,6 +141,15 @@ Drop-in replacements for LLM provider APIs.
 | OpenAI | `POST /v1/chat/completions` | Chat completions with caching |
 | OpenAI | `GET /v1/models` | List available models |
 | Anthropic | `POST /v1/messages` | Messages API with caching |
+| Gemini | `POST /v1beta/models/{model}/generateContent` | Content generation with caching |
+| Gemini | `POST /v1beta/models/{model}/streamGenerateContent` | Streaming content generation |
+| Gemini | `POST /v1beta/models/{model}/countTokens` | Token counting |
+| Gemini | `POST /v1beta/models/{model}/embedContent` | Embeddings |
+| Gemini | `GET /v1beta/models` | List available models |
+| Gemini | `GET /v1beta/models/{model}` | Get model info |
+| Cohere | `POST /v1/chat` | Chat with caching |
+| Cohere | `POST /v1/generate` | Text generation (legacy) |
+| Cohere | `POST /v1/embed` | Embeddings |
 
 ### Authentication API
 

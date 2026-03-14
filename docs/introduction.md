@@ -10,10 +10,10 @@ WorldFlow AI is an enterprise memory layer for LLM applications. It sits between
 
 ## Why WorldFlow AI?
 
-- **Cost reduction** --- Cache semantically similar queries and serve responses in under 50ms instead of calling the LLM provider. Typical teams see 60-80% cache hit rates.
+- **Cost reduction** --- Cache semantically similar queries and serve responses in under 50ms instead of calling the LLM provider. 40-70% reduction in inference costs through semantic caching.
+- **Inference acceleration** --- KV-cache reuse (SemBlend) eliminates redundant GPU prefill computation for long-context prompts, delivering 2-12x TTFT speedup with near-lossless quality.
 - **Context continuity** --- Agents lose context between sessions. WorldFlow AI's memory layer persists milestones, branches, and reasoning traces so every new session starts with full project awareness.
 - **Team intelligence** --- Search across all projects, contributors, and external sources (Slack, JIRA, Confluence) with natural language queries.
-- **Inference acceleration** --- KV-cache reuse (SemBlend) eliminates redundant GPU prefill computation for long-context prompts, delivering up to 12x TTFT speedup at 32K tokens with near-lossless quality.
 
 ## Get Started
 
@@ -24,10 +24,6 @@ Make your first cached query and store your first memory milestone in under 5 mi
 ### [API Reference](./api-reference/overview)
 
 Complete reference for all endpoints: authentication, memory, and OpenAI/Anthropic-compatible proxy.
-
-### [Claude Code Integration](./guides/claude-code)
-
-Install WorldFlow AI hooks for Claude Code to get automatic session memory and cost savings.
 
 ### [Core Concepts](./concepts)
 
@@ -41,6 +37,9 @@ Understand the semantic cache, the three-tier cache architecture, the GCC memory
 | [Memory](./api-reference/memory-api) | 32 | Projects, milestones, branches, search, intelligence |
 | [Proxy (OpenAI)](./api-reference/proxy-openai) | 2 | Drop-in `/v1/chat/completions` replacement |
 | [Proxy (Anthropic)](./api-reference/proxy-anthropic) | 1 | Drop-in `/v1/messages` replacement |
+| [Proxy (Gemini)](./api-reference/proxy-gemini) | 6 | Drop-in Gemini API replacement |
+| [Proxy (Cohere)](./api-reference/proxy-cohere) | 3 | Drop-in Cohere API replacement |
+| [MCP / Agentic](./api-reference/mcp-api) | 20+ | Model Context Protocol server management |
 
 ## SDK Examples
 

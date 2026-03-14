@@ -137,8 +137,6 @@ Or for local development:
 export ANTHROPIC_BASE_URL=http://localhost:8080/v1
 ```
 
-See [Claude Code Integration Guide](../guides/claude-code) for the full setup.
-
 ## Python SDK
 
 ```python
