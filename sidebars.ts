@@ -79,7 +79,6 @@ const sidebars: SidebarsConfig = {
       items: [
         'deployment/hosted',
         'deployment/self-hosted',
-        'deployment/right-sizing',
       ],
     },
   ],
